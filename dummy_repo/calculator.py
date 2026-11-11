@@ -10,9 +10,28 @@ def subtract(a, b):
 
 # New multiply function added
 
-def multiply(a, b):
+def multiply(a, b, c=None):
+    """Return the product of two or three numbers.
+    If a third argument is provided, multiply all three.
+    """
+    if c is not None:
+        return a * b * c
     return a * b
+
+# New divide function added
+
+def divide(a, b):
+    """Return the result of dividing a by b.
+    If b is zero, returns the string "Error: Division by zero".
+    """
+    if b == 0:
+        return "Error: Division by zero"
+    return a / b
+
 
 if __name__ == "__main__":
     print("10 + 5 =", add(10, 5))
     print("10 * 5 =", multiply(10, 5))
+    print("10 * 5 * 2 =", multiply(10, 5, 2))
+    print("10 / 2 =", divide(10, 2))
+    print("10 / 0 =", divide(10, 0))
