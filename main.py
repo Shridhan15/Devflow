@@ -73,41 +73,46 @@ class AgentState(TypedDict):
 #     return {"files": existing_files}
 
 
-# --------------- Reader NODE for RAG Architecture ---------------
+# --------------- Reader NODE AST Aware RAG Architecture ---------------
 def reader_node(state: dict):
     Log.agent("reader")
     task = state.get("task_description", "")
     
-    Log.state_update("Querying DB", "Searching vector store for relevant code...")
+    Log.state_update("Querying DB", "Searching AST-aware vector store for logical structures...")
     
-    # 1. Initialize the embedding model (must match the indexer)
     embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
     
-    # 2. Connect to the existing Chroma database
     if not os.path.exists("chroma_db"):
-        Log.error("chroma_db not found. Did you run indexer.py?")
+        Log.error("chroma_db not found. Did you run ast_indexer.py?")
         return {"files": {}}
         
     vectorstore = Chroma(persist_directory="chroma_db", embedding_function=embeddings)
     
-    # 3. Perform the Semantic Search
-    # We ask for the top 5 most relevant chunks of code based on the user's task
+    # Retrieve the top 5 most relevant structural chunks
     retrieved_docs = vectorstore.similarity_search(task, k=5)
     
-    # 4. Extract the unique filenames from the metadata of those chunks
     relevant_filenames = set()
+    retrieved_structures = []
+    
     for doc in retrieved_docs:
         filename = doc.metadata.get("filename")
+        node_type = doc.metadata.get("node_type", "Unknown")
+        node_name = doc.metadata.get("node_name", "Unknown")
+        
         if filename:
             relevant_filenames.add(filename)
+            # We now know EXACTLY what logical block triggered the match
+            retrieved_structures.append(f"[{node_type}: {node_name}]")
             
     if not relevant_filenames:
-        Log.error("No relevant files found in the vector database.")
+        Log.error("No relevant structures found in the vector database.")
         return {"files": {}}
         
-    Log.state_update("RAG Search", f"Found relevant files: {', '.join(relevant_filenames)}")
+    # Log the specific architecture it found, removing duplicates
+    unique_structures = list(dict.fromkeys(retrieved_structures))
+    Log.state_update("AST Match", ", ".join(unique_structures))
     
-    # 5. Load ONLY those specific files from the dummy_repo
+    # Load the specific files those structures belong to
     repo_path = "dummy_repo"
     loaded_files = {}
     

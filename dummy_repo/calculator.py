@@ -38,6 +38,19 @@ def modulo(a, b):
         return "Error: Division by zero"
     return a % b
 
+# New power function added
+
+def power(a, b):
+    """Return a raised to the power of b.
+    
+    Parameters:
+        a (numeric): The base value.
+        b (numeric): The exponent value.
+    
+    Returns:
+        numeric: The result of a ** b.
+    """
+    return a ** b
 
 if __name__ == "__main__":
     print("10 + 5 =", add(10, 5))
@@ -46,3 +59,4 @@ if __name__ == "__main__":
     print("10 / 2 =", divide(10, 2))
     print("10 / 0 =", divide(10, 0))
     print("10 % 3 =", modulo(10, 3))
+    print("2 ** 3 =", power(2, 3))
