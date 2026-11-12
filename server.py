@@ -11,20 +11,22 @@ server = FastAPI(title="DevFlow API")
 
 class TaskRequest(BaseModel):
     task: str
-    
+    repo_url: str  # NEW: Expect the GitHub URL from the frontend/user
+
 class FeedbackRequest(BaseModel):
     thread_id: str
     feedback: str
 
 @server.post("/api/start")
 async def start_task(request: TaskRequest):
-    """Starts a new DevFlow agent run and pauses at human approval."""
+    """Starts a new DevFlow agent run on a specific GitHub repository."""
     thread_id = str(uuid.uuid4())
     thread = {"configurable": {"thread_id": thread_id}}
     
-    # Define the initial state directly here
+    # NEW: Pass the repo_url into the LangGraph state
     state = {
         "task_description": request.task,
+        "repo_url": request.repo_url,  
         "iterations": 0,
         "max_iterations": 3,
         "files": {},
@@ -48,7 +50,7 @@ async def start_task(request: TaskRequest):
             "proposed_files": interrupt_data["files"]
         }
         
-    return {"status": "completed", "thread_id": thread_id}
+    return {"status": "completed", "thread_id": thread_id, "message": "Task finished and Pull Request created!"}
 
 @server.post("/api/feedback")
 async def provide_feedback(request: FeedbackRequest):
@@ -72,7 +74,7 @@ async def provide_feedback(request: FeedbackRequest):
             "proposed_files": interrupt_data["files"]
         }
         
-    return {"status": "completed", "message": "Code successfully approved and saved."}
+    return {"status": "completed", "message": "Pull Request successfully created."}
 
 if __name__ == "__main__":
     import uvicorn

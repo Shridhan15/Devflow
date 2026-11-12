@@ -2,5 +2,9 @@ venv
 .env
 __pycache__
 
-workspace
+workspaces
 chroma_db
+devflow_state.sqlite
+devflow_state.sqlite-shm
+devflow_state.sqlite-wal
+dummy_repo/
