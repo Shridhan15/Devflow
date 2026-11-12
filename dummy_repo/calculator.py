@@ -28,6 +28,16 @@ def divide(a, b):
         return "Error: Division by zero"
     return a / b
 
+# New modulo function added
+
+def modulo(a, b):
+    """Return the remainder of a divided by b.
+    If b is zero, returns the string "Error: Division by zero".
+    """
+    if b == 0:
+        return "Error: Division by zero"
+    return a % b
+
 
 if __name__ == "__main__":
     print("10 + 5 =", add(10, 5))
@@ -35,3 +45,4 @@ if __name__ == "__main__":
     print("10 * 5 * 2 =", multiply(10, 5, 2))
     print("10 / 2 =", divide(10, 2))
     print("10 / 0 =", divide(10, 0))
+    print("10 % 3 =", modulo(10, 3))

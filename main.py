@@ -4,6 +4,8 @@ import subprocess
 import sys
 from typing import TypedDict, Dict
 from dotenv import load_dotenv
+from langchain_chroma import Chroma
+from langchain_huggingface import HuggingFaceEmbeddings
 
 # Load ENV first so Groq initializes properly
 load_dotenv()
@@ -55,21 +57,68 @@ class AgentState(TypedDict):
 # ---------------------------------------------------------
 # 2. Nodes
 # ---------------------------------------------------------
+# def reader_node(state: dict):
+#     Log.agent("reader")
+#     repo_path = "dummy_repo"
+#     existing_files = {}
+    
+#     if os.path.exists(repo_path):
+#         for filename in os.listdir(repo_path):
+#             if filename.endswith(".py"):
+#                 filepath = os.path.join(repo_path, filename)
+#                 with open(filepath, "r", encoding="utf-8") as f:
+#                     existing_files[filename] = f.read()
+                    
+#     Log.state_update(f"Loaded Files", f"{len(existing_files)} file(s) from {repo_path}")
+#     return {"files": existing_files}
+
+
+# --------------- Reader NODE for RAG Architecture ---------------
 def reader_node(state: dict):
     Log.agent("reader")
-    repo_path = "dummy_repo"
-    existing_files = {}
+    task = state.get("task_description", "")
     
-    if os.path.exists(repo_path):
-        for filename in os.listdir(repo_path):
-            if filename.endswith(".py"):
-                filepath = os.path.join(repo_path, filename)
-                with open(filepath, "r", encoding="utf-8") as f:
-                    existing_files[filename] = f.read()
-                    
-    Log.state_update(f"Loaded Files", f"{len(existing_files)} file(s) from {repo_path}")
-    return {"files": existing_files}
-
+    Log.state_update("Querying DB", "Searching vector store for relevant code...")
+    
+    # 1. Initialize the embedding model (must match the indexer)
+    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+    
+    # 2. Connect to the existing Chroma database
+    if not os.path.exists("chroma_db"):
+        Log.error("chroma_db not found. Did you run indexer.py?")
+        return {"files": {}}
+        
+    vectorstore = Chroma(persist_directory="chroma_db", embedding_function=embeddings)
+    
+    # 3. Perform the Semantic Search
+    # We ask for the top 5 most relevant chunks of code based on the user's task
+    retrieved_docs = vectorstore.similarity_search(task, k=5)
+    
+    # 4. Extract the unique filenames from the metadata of those chunks
+    relevant_filenames = set()
+    for doc in retrieved_docs:
+        filename = doc.metadata.get("filename")
+        if filename:
+            relevant_filenames.add(filename)
+            
+    if not relevant_filenames:
+        Log.error("No relevant files found in the vector database.")
+        return {"files": {}}
+        
+    Log.state_update("RAG Search", f"Found relevant files: {', '.join(relevant_filenames)}")
+    
+    # 5. Load ONLY those specific files from the dummy_repo
+    repo_path = "dummy_repo"
+    loaded_files = {}
+    
+    for filename in relevant_filenames:
+        filepath = os.path.join(repo_path, filename)
+        if os.path.exists(filepath):
+            with open(filepath, "r", encoding="utf-8") as f:
+                loaded_files[filename] = f.read()
+                
+    Log.state_update("Loaded Files", f"Injected {len(loaded_files)} file(s) into state.")
+    return {"files": loaded_files}
 
 def tester_node(state: dict):
     Log.agent("tester")
