@@ -47,6 +47,11 @@ planner_prompt = ChatPromptTemplate.from_messages([
     CRITICAL INSTRUCTIONS:
     - Do NOT write the actual code, only the plan.
     - Understand the existing code and ensure your plan does not break existing functionality.
+    - If the task requires adding new functionality, ensure your plan integrates it seamlessly with the existing code.
+    - If the task requires removing or deleting code, ensure your plan specifies exactly which parts to remove and how to do it safely.
+    - If the task requires modifying existing code, ensure your plan specifies exactly which parts to modify and how to do it safely.
+    - If the task requires adding new files, specify the exact file names and their intended content.
+- If the task requires deleting files, specify the exact file names to delete.
     - Outline exactly where the new changes should go."""),
     ("human", """
     Task: {task_description}
@@ -84,7 +89,8 @@ coder_prompt = ChatPromptTemplate.from_messages([
 
     CRITICAL INSTRUCTIONS:
     - You MUST return the ENTIRE file content, including both the untouched existing code and your new additions.
-    - NEVER use lazy placeholders like '# existing code here'. If you do not return the full code, the old code will be deleted."""),
+    - NEVER use lazy placeholders like '# existing code here'. If you do not return the full code, the old code will be deleted.
+    - If the task or plan requires removing, deleting, or dropping code, you MUST completely omit that code from your final output."""),
     ("human", """
     Task: {task_description}
     Plan: {plan}

@@ -8,3 +8,5 @@ devflow_state.sqlite
 devflow_state.sqlite-shm
 devflow_state.sqlite-wal
 dummy_repo/
+__init__.py
+node_modules/

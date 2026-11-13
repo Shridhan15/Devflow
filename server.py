@@ -2,12 +2,23 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from langgraph.types import Command
+from fastapi.middleware.cors import CORSMiddleware # NEW IMPORT
 import uuid
 
 # Only import the compiled app from main
 from main import app
 
 server = FastAPI(title="DevFlow API")
+
+
+server.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"], # Vite's default port
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 class TaskRequest(BaseModel):
     task: str
