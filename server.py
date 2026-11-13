@@ -9,8 +9,6 @@ import uuid
 from main import app
 
 server = FastAPI(title="DevFlow API")
-
-
 server.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"], # Vite's default port
@@ -18,8 +16,6 @@ server.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
 class TaskRequest(BaseModel):
     task: str
     repo_url: str  # NEW: Expect the GitHub URL from the frontend/user

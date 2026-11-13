@@ -1,5 +1,6 @@
 # github_service.py
 import os
+import shutil # NEW IMPORT
 from git import Repo
 from github import Github
 from dotenv import load_dotenv
@@ -18,22 +19,24 @@ def clone_and_branch(repo_url: str, branch_name: str, workspace_dir: str = "work
     """Clones a repository and checks out a new feature branch."""
     os.makedirs(workspace_dir, exist_ok=True)
     
-    # Extract the repository name from the URL (e.g., 'devflow' from 'https://github.com/user/devflow.git')
     repo_name = repo_url.split("/")[-1].replace(".git", "")
     local_path = os.path.join(workspace_dir, repo_name)
     
+    # ENFORCE CLEAN SLATE: If a dirty workspace exists from a crashed run, nuke it.
     if os.path.exists(local_path):
-        print(f"{Log.YELLOW}Repository already exists locally. Pulling latest...{Log.RESET}")
-        repo = Repo(local_path)
-        # Ensure we are on main before pulling and branching
-        repo.git.checkout('main')
-        repo.remotes.origin.pull()
-    else:
-        print(f"{Log.CYAN}Cloning {repo_url} into {local_path}...{Log.RESET}")
-        repo = Repo.clone_from(repo_url, local_path)
+        print(f"{Log.YELLOW}Found old workspace. Wiping it to ensure a clean clone...{Log.RESET}")
+        # Need to handle Git's read-only files on Windows during deletion
+        def on_rm_error(func, path, exc_info):
+            import stat
+            os.chmod(path, stat.S_IWRITE)
+            os.unlink(path)
+            
+        shutil.rmtree(local_path, onerror=on_rm_error)
+        
+    print(f"{Log.CYAN}Cloning fresh copy of {repo_url} into {local_path}...{Log.RESET}")
+    repo = Repo.clone_from(repo_url, local_path)
         
     print(f"{Log.CYAN}Creating and checking out branch: {branch_name}{Log.RESET}")
-    # Create and checkout the new branch
     repo.git.checkout('-b', branch_name)
     
     return local_path

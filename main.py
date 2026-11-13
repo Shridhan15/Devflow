@@ -16,7 +16,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import interrupt, Command
 from agents import planner_node, coder_node, reviewer_node
 from github_service import clone_and_branch, create_pull_request
-from ast_indexer import build_ast_index  # Import the indexer
+from ast_indexer import build_ast_index, global_embeddings # Import the indexer
 import uuid
 
 # ---------------------------------------------------------
@@ -153,13 +153,13 @@ def reader_node(state: dict):
     
     Log.state_update("Querying DB", "Searching AST-aware vector store for logical structures...")
     
-    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
     
     if not os.path.exists("chroma_db"):
         Log.error("chroma_db not found. Did you run ast_indexer.py?")
         return {"files": {}}
         
-    vectorstore = Chroma(persist_directory="chroma_db", embedding_function=embeddings)
+    vectorstore = Chroma(persist_directory="chroma_db", 
+        embedding_function=global_embeddings)
     
     # Retrieve the top 5 most relevant structural chunks
     retrieved_docs = vectorstore.similarity_search(task, k=5)

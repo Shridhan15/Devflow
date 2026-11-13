@@ -3,6 +3,7 @@ import os
 import ast
 import shutil
 import time
+import stat
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.documents import Document
@@ -12,6 +13,11 @@ class Log:
     GREEN = '\033[92m'
     YELLOW = '\033[93m'
     RESET = '\033[0m'
+
+# 1. INITIALIZE ONCE AT STARTUP (Global Scope)
+print(f"{Log.CYAN}Loading HuggingFace Embeddings into memory...{Log.RESET}")
+global_embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+print(f"{Log.GREEN}Embeddings loaded successfully.{Log.RESET}")
 
 def extract_ast_chunks(filepath: str, source_code: str):
     """Parses Python code into an AST and extracts distinct functions and classes."""
@@ -45,18 +51,23 @@ def extract_ast_chunks(filepath: str, source_code: str):
                 
     return documents
 
-def build_ast_index(repo_path="dummy_repo", persist_dir="chroma_db"):
+def build_ast_index(repo_path="workspaces", persist_dir="chroma_db"):
     print(f"\n{Log.CYAN}--- DEVFLOW AST-AWARE INDEXER ---{Log.RESET}")
     
     if os.path.exists(persist_dir):
         print(f"{Log.YELLOW}Clearing old database state...{Log.RESET}")
+        
+        # 2. Add error handling for Windows file locks
+        def on_rm_error(func, path, exc_info):
+            os.chmod(path, stat.S_IWRITE)
+            os.unlink(path)
+            
         try:
-            shutil.rmtree(persist_dir)
+            shutil.rmtree(persist_dir, onerror=on_rm_error)
             time.sleep(0.5)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"{Log.YELLOW}Warning during DB clear: {e}{Log.RESET}")
 
-    embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
     all_documents = []
     
     for root, _, files in os.walk(repo_path):
@@ -81,9 +92,10 @@ def build_ast_index(repo_path="dummy_repo", persist_dir="chroma_db"):
         
     print(f"\nBuilding Vector Database with {len(all_documents)} structural chunks...")
     
+    # 3. Use the pre-loaded global model instead of initializing a new one
     Chroma.from_documents(
         documents=all_documents,
-        embedding=embeddings,
+        embedding=global_embeddings,
         persist_directory=persist_dir
     )
     
