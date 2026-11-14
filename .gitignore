@@ -10,3 +10,7 @@ devflow_state.sqlite-wal
 dummy_repo/
 __init__.py
 node_modules/
+
+*.sqlite
+*.sqlite3
+*.db
