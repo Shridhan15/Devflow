@@ -15,7 +15,7 @@ import sqlite3
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import interrupt, Command
 from agents import planner_node, coder_node, reviewer_node
-from github_service import clone_and_branch, create_pull_request
+from github_service import sync_workspace, create_pull_request
 from ast_indexer import build_ast_index, global_embeddings # Import the indexer
 import uuid
 
@@ -73,11 +73,14 @@ def setup_node(state: dict):
     branch_name = f"devflow/{str(uuid.uuid4())[:8]}"
     
     Log.state_update("GitHub", f"Cloning {repo_url} and creating branch {branch_name}")
-    workspace_path = clone_and_branch(repo_url, branch_name)
+    workspace_path, changed_files = sync_workspace(repo_url, branch_name)
     
     # NEW: Automatically build the AST vector database for the newly cloned repo
-    Log.state_update("Indexer", f"Building AST Vector DB for {workspace_path}")
-    build_ast_index(repo_path=workspace_path, persist_dir="chroma_db")
+    if changed_files:
+        Log.state_update("Indexer", "Updating AST Vector DB...")
+        build_ast_index(repo_path=workspace_path, persist_dir="chroma_db", changed_files=changed_files)
+    else:
+        Log.success("AST Index is already up-to-date. Skipped.")
     
     return {
         "workspace_path": workspace_path,

@@ -13,3 +13,9 @@ export const sendFeedback = async (threadId, feedback) => {
     const response = await API.post('/feedback', { thread_id: threadId, feedback });
     return response.data;
 };
+
+// Add this exported function to api.js
+export const getWorkspaces = async () => {
+  const response = await API.get('/workspaces');
+  return response.data;
+};

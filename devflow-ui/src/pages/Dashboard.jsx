@@ -1,83 +1,40 @@
-import { useState } from "react";
-import { startTask, sendFeedback } from "../services/api";
-import TaskForm from "../components/TaskForm";
-import ReviewPanel from "../components/ReviewPanel";
-import { Activity } from "lucide-react";
+import { useState, useEffect } from "react";
+import Sidebar from "../components/Sidebar";
+import WorkspaceView from "../components/WorkspaceView";
+import { getWorkspaces } from "../services/api";
 
 export default function Dashboard() {
-  const [loading, setLoading] = useState(false);
-  const [sessionData, setSessionData] = useState(null);
-  const [statusMessage, setStatusMessage] = useState("");
+  const [workspaces, setWorkspaces] = useState([]);
+  const [activeWorkspace, setActiveWorkspace] = useState("NEW");
 
-  const handleStartTask = async (task, repoUrl) => {
-    setLoading(true);
-    setStatusMessage("Initializing agents and indexing repository...");
+  const fetchWorkspaces = async () => {
     try {
-      const data = await startTask(task, repoUrl);
-      setSessionData(data);
-      if (data.status === "completed") {
-        setStatusMessage("Task completed successfully!");
-      } else {
-        setStatusMessage("");
+      const data = await getWorkspaces();
+      setWorkspaces(data);
+      // Auto-select the first workspace if it exists and we're currently on NEW
+      if (data.length > 0 && activeWorkspace === "NEW") {
+        setActiveWorkspace(data[0]);
       }
     } catch (error) {
-      console.error(error);
-      setStatusMessage("Error executing task. Check server logs.");
+      console.error("Failed to load workspaces", error);
     }
-    setLoading(false);
   };
 
-  const handleFeedback = async (feedback) => {
-    setLoading(true);
-    setStatusMessage("Processing feedback and resuming graph...");
-    try {
-      const data = await sendFeedback(sessionData.thread_id, feedback);
-      setSessionData(data);
-      if (data.status === "completed") {
-        setStatusMessage("Pull Request created successfully!");
-      } else {
-        setStatusMessage("");
-      }
-    } catch (error) {
-      console.error(error);
-      setStatusMessage("Error resuming task.");
-    }
-    setLoading(false);
-  };
+  useEffect(() => {
+    fetchWorkspaces();
+  }, []);
 
   return (
-    <div className="max-w-4xl mx-auto py-10 px-4">
-      <div className="flex items-center mb-8">
-        <Activity className="text-cyan-500 mr-3" size={32} />
-        <h1 className="text-3xl font-bold text-white tracking-tight">
-          DevFlow Dashboard
-        </h1>
-      </div>
-
-      {!sessionData || sessionData.status === "completed" ? (
-        <TaskForm onSubmit={handleStartTask} isLoading={loading} />
-      ) : null}
-
-      {loading && statusMessage && (
-        <div className="mt-6 p-4 bg-blue-900/30 border border-blue-800 rounded text-blue-300 flex items-center animate-pulse">
-          <Activity className="mr-3 animate-spin" size={18} />
-          {statusMessage}
-        </div>
-      )}
-
-      {sessionData?.status === "awaiting_approval" && !loading && (
-        <ReviewPanel
-          sessionData={sessionData}
-          onFeedback={handleFeedback}
-          isLoading={loading}
-        />
-      )}
-
-      {sessionData?.status === "completed" && !loading && (
-        <div className="mt-6 p-4 bg-green-900/30 border border-green-800 rounded text-green-400">
-          ✓ {sessionData.message || statusMessage}
-        </div>
-      )}
+    <div className="flex h-screen overflow-hidden bg-gray-950 font-sans selection:bg-cyan-900">
+      <Sidebar
+        workspaces={workspaces}
+        activeWorkspace={activeWorkspace}
+        onSelectWorkspace={setActiveWorkspace}
+      />
+      <WorkspaceView
+        workspace={activeWorkspace}
+        onWorkspaceCreated={fetchWorkspaces}
+      />
     </div>
   );
 }

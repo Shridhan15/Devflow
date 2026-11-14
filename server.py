@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from langgraph.types import Command
 from fastapi.middleware.cors import CORSMiddleware # NEW IMPORT
 import uuid
+from workspace_db import get_all_workspaces
 
 # Only import the compiled app from main
 from main import app
@@ -82,6 +83,11 @@ async def provide_feedback(request: FeedbackRequest):
         }
         
     return {"status": "completed", "message": "Pull Request successfully created."}
+
+@server.get("/api/workspaces")
+async def fetch_workspaces():
+    """Returns a list of all persistent workspaces."""
+    return get_all_workspaces()
 
 if __name__ == "__main__":
     import uvicorn
