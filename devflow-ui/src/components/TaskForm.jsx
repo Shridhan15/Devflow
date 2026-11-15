@@ -6,19 +6,23 @@ export default function TaskForm({ workspace, onSubmit, isLoading }) {
   const [task, setTask] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
 
-  // Auto-fill repo URL if a workspace is selected
+  const isNew = workspace === "NEW";
+  // Stable identity: only reset the form when the selected workspace really changes,
+  // not when the parent hands us a new object with the same contents.
+  const workspaceKey = isNew ? "NEW" : workspace?.workspace_id;
+  const workspaceRepo = isNew ? "" : workspace?.repo_url || "";
+
   useEffect(() => {
-    if (workspace && workspace !== "NEW") {
-      setRepoUrl(workspace.repo_url);
-    } else {
-      setRepoUrl("");
-    }
+    setRepoUrl(workspaceRepo);
     setTask(""); // Clear task on workspace change
-  }, [workspace]);
+  }, [workspaceKey, workspaceRepo]);
+
+  const canSubmit = !isLoading && task.trim() && repoUrl.trim();
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    onSubmit(task, repoUrl);
+    if (!canSubmit) return;
+    onSubmit(task.trim(), repoUrl.trim());
   };
 
   return (
@@ -38,12 +42,12 @@ export default function TaskForm({ workspace, onSubmit, isLoading }) {
           <input
             type="text"
             required
-            readOnly={workspace !== "NEW"}
+            readOnly={!isNew}
             value={repoUrl}
             onChange={(e) => setRepoUrl(e.target.value)}
             placeholder="https://github.com/username/repo.git"
             className={`w-full bg-gray-900 border border-gray-700 rounded-lg py-3 pl-10 pr-4 text-white focus:outline-none focus:border-cyan-500 transition-colors ${
-              workspace !== "NEW" ? "opacity-70 cursor-not-allowed" : ""
+              !isNew ? "opacity-70 cursor-not-allowed" : ""
             }`}
           />
         </div>
@@ -64,7 +68,7 @@ export default function TaskForm({ workspace, onSubmit, isLoading }) {
 
       <button
         type="submit"
-        disabled={isLoading || !task || !repoUrl}
+        disabled={!canSubmit}
         className="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-3.5 px-4 rounded-lg flex items-center justify-center transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {isLoading ? (

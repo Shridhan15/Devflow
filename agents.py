@@ -18,18 +18,22 @@ class Log:
     YELLOW = '\033[93m'
     RED = '\033[91m'
     RESET = '\033[0m'
-
+    
     @staticmethod
     def agent(name: str):
         print(f"\n{Log.CYAN}{'='*50}\n⚙️  RUNNING NODE: [{name.upper()}]\n{'='*50}{Log.RESET}")
 
     @staticmethod
-    def state_update(key: str, value: Any):
-        val_str = str(value)
-        shown = f"{val_str[:100]}..." if len(val_str) > 100 else val_str
-        print(f"   {Log.YELLOW}↳ {key}:{Log.RESET} {shown}")
+    def state_update(key: str, value: str):
+        print(f"   {Log.YELLOW}↳ {key}:{Log.RESET} {value[:100]}..." if len(str(value)) > 100 else f"   {Log.YELLOW}↳ {key}:{Log.RESET} {value}")
 
-
+    @staticmethod
+    def success(msg: str):
+        print(f"   {Log.GREEN}✓ {msg}{Log.RESET}")
+        
+    @staticmethod
+    def error(msg: str):
+        print(f"   {Log.RED}✗ {msg}{Log.RESET}")
 # ---------------------------------------------------------
 # Small helpers
 # ---------------------------------------------------------
@@ -161,24 +165,25 @@ class PlannerOutput(BaseModel):
     plan: str = Field(description="Step-by-step logic for how to modify the code.")
 
 planner_prompt = ChatPromptTemplate.from_messages([
-    ("system", """You are an expert software architect. You are editing an existing codebase.
-    Given a task and the current code, write a clear, step-by-step logic plan for how to modify the code to implement the request.
+    ("system", """You are an expert Full-Stack Software Architect managing a complex, multi-language codebase (Python, JavaScript, TypeScript, React).
+    Your job is to read the user's task and the current codebase context, and write a precise, step-by-step logical plan to implement the request.
 
-    CRITICAL INSTRUCTIONS:
-    - Do NOT write the actual code, only the plan.
-    - Understand the existing code and ensure your plan does not break existing functionality.
-    - If the task requires adding new functionality, ensure your plan integrates it seamlessly with the existing code.
-    - If the task requires removing or deleting code, ensure your plan specifies exactly which parts to remove and how to do it safely.
-    - If the task requires modifying existing code, ensure your plan specifies exactly which parts to modify and how to do it safely.
-    - If the task requires adding new files, specify the exact file names and their intended content.
-    - If the task requires deleting files, specify the exact file names to delete.
-    - If review feedback or execution errors are provided, your plan MUST explicitly address each of them.
-    - Outline exactly where the new changes should go."""),
+    CRITICAL ARCHITECTURAL RULES:
+    1. DO NOT WRITE CODE: Write only the high-level logic and steps. The Coder agent will write the actual implementation.
+    2. DEPENDENCY AWARENESS: If the task involves React or frontend components, explicitly instruct the Coder to include necessary imports (e.g., useState, relative CSS files, other components). If it involves Python, specify required module imports.
+    3. SEAMLESS INTEGRATION: Ensure your plan does not break existing application flows, state management, or API contracts.
+    4. DESTRUCTIVE ACTIONS: 
+       - If code must be removed, explicitly state exactly which functions, classes, or lines to delete safely.
+       - If whole files must be deleted, list their exact paths.
+    5. FILE PATHS: Only reference paths that appear in "Current Files" or "Repo Tree". Never guess filenames.
+    6. FEEDBACK LOOP: If human/AI review feedback or test execution errors are provided, your plan MUST explicitly diagnose the failure and define the exact steps to fix it.
+    """),
     ("human", """
     Task: {task_description}
     Current Files: {files}
     Feedback from the previous review (AI or human), if any: {reviewer_feedback}
     Latest execution output, if any: {test_output}
+    Repo Tree (all valid file paths): {repo_tree}
     """)
 ])
 
@@ -186,12 +191,14 @@ planner_chain = RobustStructuredChain(planner_prompt, PlannerOutput, default=Non
 
 def planner_node(state: dict):
     Log.agent("planner")
-    result: PlannerOutput = planner_chain.invoke({
+    # planner_node
+    result = planner_chain.invoke({
         "task_description": state["task_description"],
         "files": state.get("files", {}),
+        "repo_tree": "\n".join(state.get("repo_tree", [])) or "Unknown",
         "reviewer_feedback": _fmt(state.get("reviewer_feedback"), "None"),
         "test_output": _fmt(state.get("test_output"), "None"),
-    })
+})
     Log.state_update("Generated Plan", result.plan)
     return {"plan": result.plan}
 
@@ -199,6 +206,31 @@ def planner_node(state: dict):
 # ---------------------------------------------------------
 # Coder Agent Logic
 # ---------------------------------------------------------
+coder_prompt = ChatPromptTemplate.from_messages([
+    ("system", """You are an Elite Full-Stack Developer modifying a production codebase.
+    Your sole objective is to translate the Architect's plan into flawless, working code.
+
+    CRITICAL CODING DIRECTIVES:
+    1. NO PLACEHOLDERS. NEVER DO THIS: `# existing code here` or `// rest of file unchanged`. 
+       - You MUST return the ABSOLUTE ENTIRE CONTENT of every file you touch, combining the untouched existing code with your new modifications. 
+       - If you use placeholders, the production file will be truncated and the system will crash.
+    2. SURGICAL DELETION: If the plan or task requires deleting specific code (like a function or component), you MUST completely omit that code from your final output. DO NOT comment it out. Erase it entirely.
+    3. POLYGLOT DEPENDENCIES: 
+       - For React/JS/TS: Ensure all required hooks (useState, useEffect), libraries, and relative component imports are included at the absolute top of the file.
+       - For Python: Ensure all required standard libraries and local module imports are declared.
+    4. FILE MANAGEMENT: 
+       - Only output the files you are actively creating or modifying. Unchanged files are preserved automatically.
+       - If the plan requires deleting an entire file, list its exact path in the `delete_files` array.
+    5. ERROR RESOLUTION: If execution errors or review feedback are provided in the prompt, you MUST prioritize fixing those exact issues in this attempt.
+    """),
+    ("human", """
+    Task: {task_description}
+    Plan: {plan}
+    Current Files: {files}
+    Feedback from the previous review (AI or human), if any: {reviewer_feedback}
+    Previous Execution Errors (if any): {test_output}
+    """)
+])
 class FileItem(BaseModel):
     filename: str = Field(description="Relative path of the file (e.g., 'calculator.py' or 'src/utils.py')")
     content: str = Field(description="The complete, runnable code for the file.")
@@ -210,26 +242,6 @@ class CoderOutput(BaseModel):
         description="Relative paths of files to delete. Empty list if none.",
     )
 
-coder_prompt = ChatPromptTemplate.from_messages([
-    ("system", """You are an expert Python developer modifying an existing codebase.
-    Update the provided files based on the plan and task.
-
-    CRITICAL INSTRUCTIONS:
-    - Only include files that you create or modify. Unchanged files are preserved automatically.
-    - For every file you include, return the ENTIRE file content, including both the untouched existing code and your new additions.
-    - NEVER use lazy placeholders like '# existing code here'. If you do not return the full code of an included file, the old code of that file will be deleted.
-    - If the task or plan requires removing, deleting, or dropping code inside a file, you MUST completely omit that code from your final output.
-    - If the task or plan requires deleting a whole file, list its path in delete_files.
-    - If review feedback or execution errors are provided, you MUST fix them."""),
-    ("human", """
-    Task: {task_description}
-    Plan: {plan}
-    Current Files: {files}
-    Feedback from the previous review (AI or human), if any: {reviewer_feedback}
-    Previous Execution Errors (if any): {test_output}
-    """)
-])
-
 coder_chain = RobustStructuredChain(coder_prompt, CoderOutput, default=None)
 
 def coder_node(state: dict):
@@ -237,13 +249,26 @@ def coder_node(state: dict):
     current_iterations = state.get("iterations", 0) + 1
     existing: Dict[str, str] = state.get("files", {}) or {}
 
-    result: CoderOutput = coder_chain.invoke({
-        "task_description": state["task_description"],
-        "plan": state.get("plan", ""),
-        "files": existing,
-        "reviewer_feedback": _fmt(state.get("reviewer_feedback"), "None"),
-        "test_output": _fmt(state.get("test_output"), "No errors yet. This is the first attempt."),
-    })
+    try:
+        result: CoderOutput = coder_chain.invoke({
+            "task_description": state["task_description"],
+            "plan": state.get("plan", ""),
+            "files": existing,
+            "reviewer_feedback": _fmt(state.get("reviewer_feedback"), "None"),
+            "test_output": _fmt(state.get("test_output"), "No errors yet. This is the first attempt."),
+        })
+    except Exception as e:
+        Log.error(f"Chain invocation failed: {str(e)}")
+        result = None
+
+    # 1. Graceful fallback if parser failed and returned None
+    if not result:
+        Log.error("Coder chain returned None (parsing failure).")
+        return {
+            "status": "coder_failed",
+            "reviewer_feedback": "CRITICAL ERROR: Output parsing failed. You MUST return strictly formatted JSON matching the schema.",
+            "iterations": current_iterations
+        }
 
     generated: Dict[str, str] = {}
     for f in result.files:
@@ -258,8 +283,14 @@ def coder_node(state: dict):
 
     to_delete = {normalize_path(n) for n in result.delete_files if n and n.strip()} - set(generated)
 
+    # 2. Graceful fallback instead of raising ValueError (prevents 500 crashes)
     if not generated and not to_delete:
-        raise ValueError("Coder returned no usable changes")
+        Log.error("Coder returned valid JSON but provided no file changes.")
+        return {
+            "status": "coder_failed",
+            "reviewer_feedback": "CRITICAL ERROR: You returned empty file lists. You MUST provide the full file contents for modified files, or list files to delete.",
+            "iterations": current_iterations
+        }
 
     # Merge: keep untouched files, apply changes, drop deleted files.
     merged = {k: v for k, v in existing.items() if k not in to_delete}
@@ -270,13 +301,14 @@ def coder_node(state: dict):
     if to_delete:
         Log.state_update("Deleted Files", sorted(to_delete))
     Log.state_update("Attempt", f"{current_iterations}/{state.get('max_iterations', 3)}")
+    
     return {
         "files": merged,
         "changed_files": sorted(generated),
         "deleted_files": deleted_files,
         "iterations": current_iterations,
+        "status": "coded"
     }
-
 
 # ---------------------------------------------------------
 # Reviewer Agent Logic

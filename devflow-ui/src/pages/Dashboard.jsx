@@ -7,21 +7,18 @@ export default function Dashboard() {
   const [workspaces, setWorkspaces] = useState([]);
   const [activeWorkspace, setActiveWorkspace] = useState("NEW");
 
-  const fetchWorkspaces = async () => {
+  const fetchWorkspaces = async ({ autoSelect = false } = {}) => {
     try {
       const data = await getWorkspaces();
       setWorkspaces(data);
-      // Auto-select the first workspace if it exists and we're currently on NEW
-      if (data.length > 0 && activeWorkspace === "NEW") {
-        setActiveWorkspace(data[0]);
-      }
+      if (autoSelect && data.length > 0) setActiveWorkspace(data[0]);
     } catch (error) {
       console.error("Failed to load workspaces", error);
     }
   };
 
   useEffect(() => {
-    fetchWorkspaces();
+    fetchWorkspaces({ autoSelect: true });
   }, []);
 
   return (

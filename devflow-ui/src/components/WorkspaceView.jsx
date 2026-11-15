@@ -2,56 +2,79 @@ import { useState, useEffect } from "react";
 import TaskForm from "./TaskForm";
 import ReviewPanel from "./ReviewPanel";
 import { startTask, sendFeedback } from "../services/api";
-import { Activity, CheckCircle2 } from "lucide-react";
+import { Activity, CheckCircle2, XCircle } from "lucide-react";
 
 export default function WorkspaceView({ workspace, onWorkspaceCreated }) {
   const [loading, setLoading] = useState(false);
   const [sessionData, setSessionData] = useState(null);
   const [statusMessage, setStatusMessage] = useState("");
+  const [error, setError] = useState("");
 
-  // Reset view when switching workspaces
+  // Depend on a stable key (the workspace id), not the object itself, so a
+  // sidebar refresh that recreates workspace objects can't wipe an active session.
+  const workspaceKey = workspace === "NEW" ? "NEW" : workspace?.workspace_id;
+
   useEffect(() => {
     setSessionData(null);
     setStatusMessage("");
-  }, [workspace]);
+    setError("");
+  }, [workspaceKey]);
+
+  // Shared handling for /start and /feedback responses
+  const applyResult = (data, doneMessage) => {
+    setSessionData(data);
+    setError("");
+    setStatusMessage("");
+    if (data.status === "completed") {
+      setStatusMessage(doneMessage);
+    } else if (data.status === "failed" || data.status === "aborted") {
+      setError(data.message || "The run ended without producing changes.");
+    }
+  };
+
+  const errorText = (err, fallback) => err?.response?.data?.detail || fallback;
 
   const handleStartTask = async (task, repoUrl) => {
     setLoading(true);
+    setError("");
     setStatusMessage(
       "Syncing Git workspace, calculating deltas, and updating AST index...",
     );
     try {
       const data = await startTask(task, repoUrl);
-      setSessionData(data);
+      applyResult(data, "Task completed!");
       if (workspace === "NEW") {
-        onWorkspaceCreated(); // Trigger sidebar refresh
+        onWorkspaceCreated(); // refresh sidebar only; Dashboard no longer switches views
       }
-      if (data.status === "completed") setStatusMessage("Task completed!");
-    } catch (error) {
-      setStatusMessage("Error executing task. Check server terminal.");
+    } catch (err) {
+      setStatusMessage("");
+      setError(errorText(err, "Error executing task. Check server terminal."));
     }
     setLoading(false);
   };
 
   const handleFeedback = async (feedback) => {
     setLoading(true);
+    setError("");
     setStatusMessage(
       "Processing human feedback and resuming LangGraph loop...",
     );
     try {
       const data = await sendFeedback(sessionData.thread_id, feedback);
-      setSessionData(data);
-      if (data.status === "completed") {
-        setStatusMessage("Pull Request created successfully!");
-      }
-    } catch (error) {
-      setStatusMessage("Error resuming task.");
+      applyResult(data, "Pull Request created successfully!");
+    } catch (err) {
+      setStatusMessage("");
+      setError(errorText(err, "Error resuming task."));
     }
     setLoading(false);
   };
 
   const wsName =
     workspace === "NEW" ? "New Workspace" : workspace?.workspace_id;
+
+  const runFinished =
+    sessionData &&
+    ["completed", "failed", "aborted"].includes(sessionData.status);
 
   return (
     <div className="flex-1 bg-gray-950 p-10 overflow-y-auto">
@@ -61,11 +84,12 @@ export default function WorkspaceView({ workspace, onWorkspaceCreated }) {
           <p className="text-gray-400">
             {workspace === "NEW"
               ? "Initialize a new repository into DevFlow."
-              : `Connected to ${workspace.repo_url}`}
+              : `Connected to ${workspace?.repo_url}`}
           </p>
         </header>
 
-        {(!sessionData || sessionData.status === "completed") && (
+        {/* Show the form on first load and again after any finished run, so failures can be retried */}
+        {(!sessionData || runFinished) && (
           <TaskForm
             workspace={workspace}
             onSubmit={handleStartTask}
@@ -80,8 +104,17 @@ export default function WorkspaceView({ workspace, onWorkspaceCreated }) {
           </div>
         )}
 
+        {!loading && error && (
+          <div className="mt-8 p-4 bg-red-900/20 border border-red-800/50 rounded-lg flex items-start text-red-400">
+            <XCircle className="mr-3 mt-0.5 shrink-0" size={20} />
+            <span className="font-medium">{error}</span>
+          </div>
+        )}
+
         {sessionData?.status === "awaiting_approval" && !loading && (
           <ReviewPanel
+            // Remount (clearing the feedback textarea) whenever the stage or thread changes
+            key={`${sessionData.thread_id}-${sessionData.stage}`}
             sessionData={sessionData}
             onFeedback={handleFeedback}
             isLoading={loading}

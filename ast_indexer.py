@@ -5,6 +5,7 @@ import shutil
 import time
 import stat
 from langchain_chroma import Chroma
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 
@@ -17,6 +18,37 @@ class Log:
 print(f"{Log.CYAN}Loading HuggingFace Embeddings into memory...{Log.RESET}")
 global_embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 print(f"{Log.GREEN}Embeddings loaded successfully.{Log.RESET}")
+
+
+
+def extract_frontend_chunks(filepath: str, source_code: str):
+    """Chunks JS/JSX/TS/TSX files using syntax-aware text splitting."""
+    # Use LangChain's splitter designed for code
+    splitter = RecursiveCharacterTextSplitter.from_language(
+        language="js", 
+        chunk_size=1500,
+        chunk_overlap=150
+    )
+    
+    chunks = splitter.split_text(source_code)
+    documents = []
+    
+    for i, chunk in enumerate(chunks):
+        doc = Document(
+            page_content=chunk,
+            metadata={
+                "filename": os.path.basename(filepath),
+                "filepath": filepath,
+                "node_type": "FrontendChunk",
+                "node_name": f"chunk_{i}"
+            }
+        )
+        documents.append(doc)
+        
+    return documents
+
+
+
 
 def extract_ast_chunks(filepath: str, source_code: str):
     # ... (Keep your existing extract_ast_chunks function exactly as is) ...
@@ -94,14 +126,26 @@ def build_ast_index(repo_path="workspaces", persist_dir="chroma_db", changed_fil
     # 4. Handle Full Index (Walk Directory)
     else:
         for root, _, files in os.walk(repo_path):
+            if "node_modules" in root or "dist" in root or ".git" in root:
+                continue
             for file in files:
+                filepath = os.path.join(root, file)
+        
+        # Route Python files to the AST parser
                 if file.endswith(".py"):
-                    filepath = os.path.join(root, file)
-                    print(f"Parsing AST for: {filepath}")
+                    print(f"Parsing Python AST for: {filepath}")
                     with open(filepath, "r", encoding="utf-8") as f:
                         content = f.read()
                     ast_docs = extract_ast_chunks(filepath, content)
                     all_documents.extend(ast_docs)
+            
+        # Route Frontend files to the JS parser
+                elif file.endswith((".js", ".jsx", ".ts", ".tsx", ".css")):
+                    print(f"Parsing Frontend Code for: {filepath}")
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        content = f.read()
+                    frontend_docs = extract_frontend_chunks(filepath, content)
+                    all_documents.extend(frontend_docs)
 
     # 5. Insert New/Updated Documents
     if all_documents:
