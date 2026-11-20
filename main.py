@@ -18,7 +18,7 @@ from langgraph.types import interrupt, Command
 
 from agents import planner_node, coder_node, reviewer_node
 from github_service import sync_workspace, create_pull_request
-from ast_indexer import build_ast_index, global_embeddings
+from ast_indexer import build_ast_index, global_embeddings, get_collection_name
 
 
 # ---------------------------------------------------------
@@ -64,6 +64,7 @@ class AgentState(TypedDict, total=False):
     max_iterations: int
     files: dict                    # path -> current content (context + everything edited so far)
     repo_tree: List[str]
+    workspace_id: str
     plan: str
     test_output: str
     status: str
@@ -171,12 +172,18 @@ def setup_node(state: dict):
 
     branch_name = f"devflow/{str(uuid.uuid4())[:8]}"
 
-    Log.state_update("GitHub", f"Cloning {repo_url} and creating branch {branch_name}")
+    Log.state_update("GitHub", f"Syncing {repo_url} and creating branch {branch_name}")
     workspace_path, changed_files = sync_workspace(repo_url, branch_name)
+    workspace_id = os.path.basename(os.path.normpath(workspace_path))
 
     if changed_files:
-        Log.state_update("Indexer", "Updating AST Vector DB...")
-        build_ast_index(repo_path=workspace_path, persist_dir="chroma_db", changed_files=changed_files)
+        Log.state_update("Indexer", f"Updating AST Vector DB for [{workspace_id}]...")
+        build_ast_index(
+            repo_path=workspace_path,
+            persist_dir="chroma_db",
+            changed_files=changed_files,
+            workspace_id=workspace_id,
+        )
     else:
         Log.success("AST Index is already up-to-date. Skipped.")
 
@@ -190,10 +197,10 @@ def setup_node(state: dict):
 
     return {
         "workspace_path": workspace_path,
+        "workspace_id": workspace_id,
         "branch_name": branch_name,
         "base_commit": base_commit,
     }
-
 
 def reader_node(state: dict):
     """
@@ -206,20 +213,25 @@ def reader_node(state: dict):
     follow_up = state.get("reviewer_feedback", "") or ""
     query = f"{task}\n{follow_up}".strip()
     repo_path = state.get("workspace_path", "dummy_repo")
+    workspace_id = state.get("workspace_id") or os.path.basename(os.path.normpath(repo_path))
+    collection_name = get_collection_name(workspace_id)
     existing = dict(state.get("files") or {})
 
     all_paths = list(_walk_repo(repo_path))
     repo_tree = sorted(_rel(p, repo_path) for p in all_paths)
 
-    Log.state_update("Querying DB", "Searching AST-aware vector store for logical structures...")
+    Log.state_update("Querying DB", f"Searching isolated collection '{collection_name}'...")
 
     matched_paths, structures = [], []
 
     if os.path.exists("chroma_db"):
-        vectorstore = Chroma(persist_directory="chroma_db", embedding_function=global_embeddings)
+        vectorstore = Chroma(
+            collection_name=collection_name,
+            persist_directory="chroma_db",
+            embedding_function=global_embeddings,
+        )
         for doc in vectorstore.similarity_search(query, k=5):
             fp = doc.metadata.get("filepath")
-            # chroma_db is shared across runs: ignore chunks from other repos/workspaces
             if not fp or not _is_inside(fp, repo_path):
                 continue
             if fp not in matched_paths:
@@ -249,13 +261,14 @@ def reader_node(state: dict):
         rel = _rel(fp, repo_path)
         if rel in existing:
             continue  # state already holds the (possibly edited) version: it wins
-        with open(fp, "r", encoding="utf-8") as f:
+        with open(fp, "r", encoding="utf-8", errors="ignore") as f:
             newly_loaded[rel] = f.read()
 
     merged = {**newly_loaded, **existing}
     Log.state_update("Loaded Files", f"{len(newly_loaded)} new, {len(existing)} already in state: {sorted(merged)}")
 
     return {"files": merged, "repo_tree": repo_tree}
+
 
 
 def tester_node(state: dict):

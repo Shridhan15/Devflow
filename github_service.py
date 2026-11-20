@@ -69,17 +69,28 @@ def sync_workspace(repo_url: str, branch_name: str, workspace_dir: str = "worksp
         repo.git.reset('--hard', 'origin/main')
         
         new_commit = repo.head.commit.hexsha
+        SUPPORTED_EXTS = (".py", ".js", ".jsx", ".ts", ".tsx", ".css")
         
         # 3. Calculate file delta
-        if last_commit and last_commit != new_commit:
-            diff_output = repo.git.diff('--name-only', last_commit, new_commit)
-            if diff_output:
-                # Keep only .py files that changed
-                changed_files = [f for f in diff_output.split('\n') if f.endswith('.py')]
-                Log.state_update("Delta", f"{len(changed_files)} file(s) changed since last run.")
-        elif last_commit == new_commit:
+        if not last_commit:
+            Log.state_update("Delta", "No previous commit recorded. Triggering full index.")
+            changed_files = ["ALL"]
+        elif last_commit != new_commit:
+            try:
+                diff_output = repo.git.diff('--name-only', last_commit, new_commit)
+                changed_files = [
+                    f.strip()
+                    for f in diff_output.splitlines()
+                    if f.strip().endswith(SUPPORTED_EXTS)
+                ]
+                Log.state_update("Delta", f"{len(changed_files)} supported file(s) changed since last run.")
+            except Exception as e:
+                # Handles force-pushes or rebased commits where last_commit no longer exists
+                Log.error(f"Git diff failed ({e}). Falling back to full index.")
+                changed_files = ["ALL"]
+        else:
             Log.state_update("Delta", "No upstream changes. Skipping AST Indexer.")
-            changed_files = [] # Empty list means skip indexing
+            changed_files = []
             
     # Save the new commit hash to the database
     update_workspace(workspace_id, repo_url, new_commit)
